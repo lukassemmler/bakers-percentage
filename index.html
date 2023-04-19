@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baker's Percentage Calculator</title>
+  <style>
+    html {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .input-row {
+      display: flex;
+      flex-direction: row;
+      padding-top: 0.3rem;
+      padding-bottom: 0.3rem;
+      align-items: center;
+    }
+
+    .input-row>*:not(:last-child) {
+      margin-right: 0.5rem;
+    }
+
+    .label-block {
+      display: block;
+      width: 8rem;
+    }
+
+    .text-right {
+      text-align: end;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    input[type="number"] {
+      width: 4rem;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 0.9rem;
+    }
+
+    main {
+      padding: 1rem 0.5rem;
+      margin-left: auto;
+      margin-right: auto;
+      max-width: 25rem;
+      overflow-x: auto;
+    }
+
+    legend {
+      font-size: 0.9rem;
+    }
+
+    fieldset+fieldset {
+      margin-top: 1rem;
+    }
+
+    .button-row {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      font-size: 0.9rem;
+      padding-top: 0.5rem;
+      border-top: 0.1rem solid rgba(0, 0, 0, 0.2);
+      margin-top: 0.5rem;
+    }
+
+    .button-row>*:not(:last-child) {
+      margin-right: 0.5rem;
+    }
+
+    .flex-right {
+      margin-left: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <div id="dough-mix"></div>
+    <p>See <a href="https://www.chainbaker.com/bakers-percentage-and-dough-hydration-explained/" rel="external">Baker's
+        Percentage and Dough Hydration Explained</a>.</p>
+    <p class="text-center"><small>Baker's Percentage Calculator v1.0.0<br>Written by <a href="https://lukassemmler.de"
+          rel="external">Lukas Semmler</a>.</small></p>
+  </main>
+  <script>
+    doughTable = {
+      id: "dough-mix",
+      title: "Dough mix",
+      totalLabel: "Total dough in g",
+      precision: 4,
+      rows: [
+        { id: "flour", label: "Flour in g", startAbs: 500, startRel: 1, primary: true },
+        { id: "water", label: "Water in g", startAbs: null, startRel: 0.6 },
+        { id: "yeast", label: "Yeast in g", startAbs: null, startRel: 0.014 },
+        { id: "salt", label: "Salt in g", startAbs: null, startRel: 0.02 },
+      ]
+    };
+
+    flourTable = {
+      id: "flour-mix",
+      title: "Flour mix",
+      totalLabel: "Total flour in g",
+      precision: 4,
+      rows: [
+        { id: "flour-raw", label: "Flour raw in g", startAbs: 500, startRel: 1, primary: true },
+        { id: "flour-gluten", label: "Flour gluten in g", startAbs: null, startRel: 0.0442 },
+      ]
+    };
+
+    function MixingTable(container, table) {
+      const { id, title, precision, totalLabel, rows } = table;
+      this.container = container;
+      this.doc = this.container.ownerDocument;
+      this.id = id;
+      this.title = title;
+      this.totalLabel = totalLabel;
+      this.precision = precision;
+      this.relLocked = false;
+
+      // Setup rows
+      this.rows = rows.map(row => new MixingRow({
+        document: this.doc,
+        row: row,
+        precision: this.precision,
+        callbacks: {
+          onAbsoluteChange: this.onAbsoluteChange.bind(this),
+          onRelativeChange: this.onRelativeChange.bind(this),
+        },
+      }));
+      this.primaryRow = this.rows.find(row => row.primary);
+      if (!this.primaryRow)
+        throw new Error(`There has to be a primary row in the mixing table. `);
+
+      // Setup total
+      const totalId = this.id + "-total";
+      // we need to assign this variable, otherwise the rows field cannot be accessed inside the total object.
+      // something something JavaScript closures
+      const dataRows = this.rows;
+      this.total = {
+        id: totalId,
+        label: totalLabel,
+        element: this.generateTotalInput(totalId, (event) => {
+          this.total.abs = parseFloat(event.target.value);
+          this.update();
+        }),
+        get abs() {
+          const values = dataRows.map(row => row.absolute.value);
+          return values.reduce((acc, val) => acc + val);
+        },
+        set abs(value) {
+          const relValues = dataRows.map(row => row.relative.value);
+          const totalPercentage = relValues.reduce((acc, val) => acc + val);
+          for (const row of dataRows)
+            row.absolute.value = value * row.relative.value / totalPercentage;
+        },
+      };
+
+    }
+
+    MixingTable.prototype.onAbsoluteChange = function onAbsoluteChange(event, rowId) {
+      if (this.relLocked)
+        this.calcAbs(rowId);
+      else
+        this.calcRel();
+      this.update();
+    }
+
+    MixingTable.prototype.onRelativeChange = function onRelativeChange(event, rowId) {
+      this.calcAbs();
+      this.update();
+    }
+
+    MixingTable.prototype.generateTotalRow = function generateTotalRow() {
+      const totalRow = h("div", { class: "input-row" }, [
+        h("label", { class: "text-right label-block", for: this.total.id }, [
+          h("b", {}, this.total.label),
+        ]),
+        this.total.element,
+      ]);
+      return totalRow;
+    }
+
+    MixingTable.prototype.generateTotalInput = function generateTotalInput(id, onTotalChange) {
+      const totalInput = h("input", {
+        id: id,
+        name: id,
+        type: "number",
+        step: 1,
+      });
+      totalInput.addEventListener("change", onTotalChange);
+      return totalInput;
+    }
+
+    MixingTable.prototype.hydrate = function hydrate() {
+      const rows = this.rows.map(row => {
+        const {
+          id,
+          label,
+          absolute: { element: absInput, id: idAbsInput },
+          relative: { element: relInput, id: idRelInput },
+        } = row;
+        return h("div", { class: "input-row" }, [
+          h("label", { class: "text-right label-block", for: idAbsInput }, label),
+          absInput,
+          relInput,
+          h("label", { for: idRelInput }, "%"),
+        ]);
+      });
+
+      if (rows.length > 1) {
+        const totalRow = this.generateTotalRow();
+        rows.push(totalRow);
+      }
+
+      const fieldset = h("fieldset", {}, [
+        h("legend", {}, this.title),
+        ...rows,
+        this.generateActionRow({
+          id: this.id,
+          onReset: (event) => {
+            this.reset();
+            this.update();
+          },
+          onLock: (event) => {
+            console.log("check")
+            const { target: { checked } } = event;
+            this.changeRelLock(checked);
+          },
+        })
+      ]);
+      this.container.appendChild(fieldset);
+      //console.log(this);
+      this.reset();
+      this.update();
+    }
+
+    MixingTable.prototype.calcAbs = function calcAbs(baseId = undefined) {
+      // All other values are calculated relative to the base value.
+      const baseRowId = baseId ?? this.primaryRow.id;
+      const baseRow = this.rows.find(row => row.id === baseRowId);
+      const baseValue = baseRow.absolute.value / baseRow.relative.value;
+      for (const row of this.rows) {
+        if (row.id === baseRowId) continue;
+        row.calcAbs(baseValue);
+      }
+    }
+
+    MixingTable.prototype.calcRel = function calcRel() {
+      const baseValue = this.primaryRow.absolute.value;
+      for (const row of this.rows) {
+        if (row.primary) continue;
+        row.calcRel(baseValue);
+      }
+    }
+
+    MixingTable.prototype.update = function update() {
+      for (const row of this.rows)
+        row.update();
+      this.total.element.value = this.total.abs.toPrecision(this.precision);
+    }
+
+    MixingTable.prototype.generateActionRow = function generateActionRow({ id, onReset, onSubmit, onLock }) {
+      const checkboxId = id + "-checkbox";
+      const lockCheckbox = h("input", { type: "checkbox", id: checkboxId, name: checkboxId });
+      lockCheckbox.addEventListener("change", onLock);
+
+      const resetButton = h("button", { type: "button", class: "flex-right" }, "Reset");
+      resetButton.addEventListener("click", (event) => {
+        onReset(event);
+        //lockCheckbox.checked = false;
+      });
+
+      return h("div", { class: "button-row" }, [
+        h("div", {}, [
+          lockCheckbox,
+          h("label", { for: checkboxId }, "Lock percentages"),
+        ]),
+        resetButton,
+      ])
+    }
+
+    MixingTable.prototype.changeRelLock = function changeRelLock(locked) {
+      for (const row of this.rows) {
+        const {
+          primary,
+          relative: { element: input }
+        } = row;
+        if (primary) continue;
+        input.disabled = locked;
+      }
+      this.relLocked = locked;
+    }
+
+    MixingTable.prototype.reset = function reset() {
+      for (const row of this.rows) {
+        row.absolute.value = row.absolute.startValue;
+        row.relative.value = row.relative.startValue;
+      }
+      //this.changeRelLock(false);
+      this.calcAbs();
+    }
+
+    function MixingRow({ document, row, precision, callbacks = {} }) {
+      this.doc = document;
+      this.precision = precision;
+      this.rawRow = row;
+      const { id, label, startAbs, startRel, primary } = row;
+      this.id = id;
+      this.label = label;
+      this.primary = primary;
+      const idAbsInput = id + "-abs";
+      const idRelInput = id + "-rel";
+      const absInput = h("input", {
+        id: idAbsInput,
+        name: idAbsInput,
+        type: "number",
+        //value: startAbs, // we cannot write the initial value in here, otherwise the steps get messed up
+        step: 1,
+      });
+      const relInput = h("input", {
+        id: idRelInput,
+        name: idRelInput,
+        type: "number",
+        //value: startRel, // we cannot write the initial value in here, otherwise the steps get messed up
+        step: 1,
+        disabled: primary ?? false,
+      });
+      this.absolute = {
+        id: idAbsInput,
+        element: absInput,
+        startValue: startAbs,
+        value: startAbs,
+      };
+      this.relative = {
+        id: idRelInput,
+        element: relInput,
+        startValue: startRel,
+        value: startRel,
+      };
+      absInput.addEventListener("change", (event) => {
+        this.absolute.value = parseFloat(this.absolute.element.value);
+        if (callbacks.onAbsoluteChange)
+          callbacks.onAbsoluteChange(event, this.id);
+      });
+      relInput.addEventListener("change", (event) => {
+        this.relative.value = parseFloat(this.relative.element.value) / 100;
+        if (callbacks.onRelativeChange)
+          callbacks.onRelativeChange(event, this.id);
+      });
+    }
+
+    MixingRow.prototype.calcAbs = function calcAbs(baseValue) {
+      this.absolute.value = this.relative.value * baseValue;
+    }
+
+    MixingRow.prototype.calcRel = function calcRel(baseValue) {
+      this.relative.value = this.absolute.value / baseValue;
+    }
+
+    MixingRow.prototype.update = function update() {
+      this.absolute.element.value = this.prec(this.absolute.value);
+      this.relative.element.value = this.prec(this.relative.value * 100);
+    }
+
+    MixingRow.prototype.prec = function prec(number) {
+      return number.toPrecision(this.precision);
+    }
+
+    function createElem(document, tag, attributes = {}, children = []) {
+      const elem = document.createElement(tag);
+      childElems = typeof children === "string"
+        ? [document.createTextNode(children)]
+        : children;
+      for (const prop in attributes) {
+        const value = attributes[prop];
+        if (value === false) continue;
+        elem.setAttribute(prop, value);
+      }
+      for (const child of childElems)
+        elem.appendChild(child);
+      return elem;
+    }
+
+    function h(tag, attributes, children) {
+      return createElem(document, tag, attributes, children);
+    }
+
+    const doughContainer = document.getElementById("dough-mix");
+
+    const mixingTable = new MixingTable(doughContainer, doughTable);
+    mixingTable.hydrate();
+
+    const flourMixingTable = new MixingTable(doughContainer, flourTable);
+    flourMixingTable.hydrate();
+
+  </script>
+</body>
+
+</html>
