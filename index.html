@@ -120,6 +120,8 @@
       this.totalLabel = totalLabel;
       this.precision = precision;
       this.relLocked = false;
+      this.customizerContainer = h("div", { class: "customizer-container"});
+      this.customizer = new MixCustomizer(this.customizerContainer, this);
 
       // Setup rows
       this.rows = rows.map(row => new MixingRow({
@@ -230,7 +232,12 @@
             const { target: { checked } } = event;
             this.changeRelLock(checked);
           },
-        })
+          onCustomize: (event) => {
+            console.log("bob")
+            this.customizer.show();
+          }
+        }),
+        this.customizerContainer,
       ]);
       this.container.appendChild(fieldset);
       //console.log(this);
@@ -263,22 +270,26 @@
       this.total.element.value = this.total.abs.toPrecision(this.precision);
     }
 
-    MixingTable.prototype.generateActionRow = function generateActionRow({ id, onReset, onSubmit, onLock }) {
+    MixingTable.prototype.generateActionRow = function generateActionRow({ id, onReset, onCustomize, onLock }) {
       const checkboxId = id + "-checkbox";
       const lockCheckbox = h("input", { type: "checkbox", id: checkboxId, name: checkboxId });
       lockCheckbox.addEventListener("change", onLock);
 
-      const resetButton = h("button", { type: "button", class: "flex-right" }, "Reset");
+      const resetButton = h("button", { type: "button" }, "Reset");
       resetButton.addEventListener("click", (event) => {
         onReset(event);
         //lockCheckbox.checked = false;
       });
+
+      const customizeButton = h("button", { type: "button", class: "flex-right" }, "Customize");
+      customizeButton.addEventListener("click", onCustomize);
 
       return h("div", { class: "button-row" }, [
         h("div", {}, [
           lockCheckbox,
           h("label", { for: checkboxId }, "Lock percentages"),
         ]),
+        customizeButton,
         resetButton,
       ])
     }
@@ -368,6 +379,29 @@
 
     MixingRow.prototype.prec = function prec(number) {
       return number.toPrecision(this.precision);
+    }
+
+    function MixCustomizer(container, table) {
+      this.container = container;
+      this.table = table;
+      this.element = null;
+    }
+
+    MixCustomizer.prototype.generate = function generate() {
+      return h("div", {class: "mix-customizer"}, "Hello World");
+    }
+
+    MixCustomizer.prototype.update = function update() {
+      this.element = this.generate();
+    }
+
+    MixCustomizer.prototype.show = function show() {
+      this.update();
+      this.container.appendChild(this.element);
+    }
+
+    MixCustomizer.prototype.hide = function hide() {
+      this.container.removeChild(this.element);
     }
 
     function createElem(document, tag, attributes = {}, children = []) {
