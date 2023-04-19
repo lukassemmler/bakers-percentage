@@ -233,8 +233,7 @@
             this.changeRelLock(checked);
           },
           onCustomize: (event) => {
-            console.log("bob")
-            this.customizer.show();
+            this.customizer.toggle();
           }
         }),
         this.customizerContainer,
@@ -385,6 +384,7 @@
       this.container = container;
       this.table = table;
       this.element = null;
+      this.displayed = false;
     }
 
     MixCustomizer.prototype.generate = function generate() {
@@ -395,12 +395,22 @@
       this.element = this.generate();
     }
 
+    MixCustomizer.prototype.toggle = function toggle() {
+      if (this.displayed) {
+        this.hide();
+        return;
+      }
+      this.show();
+    }
+
     MixCustomizer.prototype.show = function show() {
       this.update();
+      this.displayed = true;
       this.container.appendChild(this.element);
     }
 
     MixCustomizer.prototype.hide = function hide() {
+      this.displayed = false;
       this.container.removeChild(this.element);
     }
 
